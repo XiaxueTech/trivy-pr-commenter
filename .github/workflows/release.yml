@@ -1,4 +1,4 @@
-name: trivy-terraform-pr-commenter release
+name: trivy-pr-commenter release
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: releasing trivy-terraform-pr-commenter
+    name: releasing trivy-pr-commenter
     runs-on: ubuntu-latest
 
     steps:
