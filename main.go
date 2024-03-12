@@ -15,7 +15,6 @@ import (
 
 func main() {
 	fmt.Println("Starting the github commenter")
-	// whatever
 
 	token := os.Getenv("INPUT_GITHUB_TOKEN")
 	if len(token) == 0 {
@@ -69,16 +68,33 @@ func main() {
 	}
 
 	var errMessages []string
-	var validCommentWritten map[string]bool
-	validCommentWritten = make(map[string]bool)
+	validCommentWritten := make(map[string]bool)
 
 	for _, result := range trivyReport.Results {
+		// skip non config/terraform results
+		if result.Class != "config" && result.Type != "terraform" {
+			fmt.Printf("%s / %s / %s - not a config/terraform result; skipping", result.Target, result.Type, result.Class)
+			continue
+		}
+		// skip if no misconfigurations
+		if len(result.Misconfigurations) == 0 {
+			fmt.Printf("%s / %s / %s - no misconfigurations; skipping\n", result.Target, result.Type, result.Class)
+			continue
+		}
 
 		for _, misconfiguration := range result.Misconfigurations {
 			filename := workingDir + strings.ReplaceAll(result.Target, workspacePath, "")
 			filename = strings.TrimPrefix(filename, "./")
 			comment := generateErrorMessage(misconfiguration)
 			fmt.Printf("Preparing comment for violation of rule %v in %v (lines %v to %v)\n", misconfiguration.ID, filename, misconfiguration.CauseMetadata.StartLine, misconfiguration.CauseMetadata.EndLine)
+
+			// check if a comment has already been written for this vulnerability
+			if validCommentWritten[misconfiguration.ID] {
+				fmt.Printf("Skipping comment for vulnerability %s, as it has already been commented on.\n", misconfiguration.ID)
+				continue
+			}
+
+			// write a comment for the vulnerability
 			err := c.WriteMultiLineComment(filename, comment, misconfiguration.CauseMetadata.StartLine, misconfiguration.CauseMetadata.EndLine)
 			if err != nil {
 				fmt.Println("  Ran into some kind of error")
@@ -94,16 +110,8 @@ func main() {
 					errMessages = append(errMessages, err.Error())
 				}
 			} else {
-				fmt.Printf("  Comment written for violation of rule %v in %v\n", misconfiguration.ID, filename)
 				validCommentWritten[misconfiguration.ID] = true
-			}
-		}
-	}
-
-	for _, result := range trivyReport.Results {
-		for _, misconfiguration := range result.Misconfigurations {
-			if !validCommentWritten[misconfiguration.ID] {
-				fmt.Printf("Commenting on new vulnerability found: %v\n", misconfiguration.ID)
+				fmt.Printf("  Comment written for violation of rule %v in %v\n", misconfiguration.ID, filename)
 			}
 		}
 	}
