@@ -1,4 +1,4 @@
-name: trivy-pr-commenter release
+name: trivy-terraform-pr-commenter release
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: releasing trivy-pr-commenter
+    name: releasing trivy-terraform-pr-commenter
     runs-on: ubuntu-latest
 
     steps:
@@ -20,6 +20,7 @@ jobs:
 
       - uses: actions/setup-go@v3
         with:
+          # stable: 'false'
           go-version: '1.22'
       - run: go version
 

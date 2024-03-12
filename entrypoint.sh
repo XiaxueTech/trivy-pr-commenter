@@ -34,7 +34,7 @@ function install_release {
   install "${binary}" "/usr/local/bin/${3}"
 }
 
-install_release XiaxueTech/trivy-pr-commenter "/latest" trivy-pr-commenter checksums.txt
+install_release XiaxueTech/trivy-terraform-pr-commenter "/latest" trivy-terraform-pr-commenter checksums.txt
 
 ls -l /usr/local/bin/
-trivy-pr-commenter ${INPUT_REPORT_FILE}
+trivy-terraform-pr-commenter ${INPUT_REPORT_FILE}
