@@ -68,49 +68,19 @@ func main() {
 	}
 
 	var errMessages []string
-	validCommentWritten := make(map[string]bool)
-
 	for _, result := range trivyReport.Results {
-		// skip non config/terraform results
-		if result.Class != "config" && result.Type != "terraform" {
-			fmt.Printf("%s / %s / %s - not a config/terraform result; skipping", result.Target, result.Type, result.Class)
-			continue
-		}
-		// skip if no misconfigurations
-		if len(result.Misconfigurations) == 0 {
-			fmt.Printf("%s / %s / %s - no misconfigurations; skipping\n", result.Target, result.Type, result.Class)
-			continue
-		}
-
 		for _, misconfiguration := range result.Misconfigurations {
+			// write a comment for each misconfiguration regardless of its relevance to the PR
 			filename := workingDir + strings.ReplaceAll(result.Target, workspacePath, "")
 			filename = strings.TrimPrefix(filename, "./")
 			comment := generateErrorMessage(misconfiguration)
 			fmt.Printf("Preparing comment for violation of rule %v in %v (lines %v to %v)\n", misconfiguration.ID, filename, misconfiguration.CauseMetadata.StartLine, misconfiguration.CauseMetadata.EndLine)
-
-			// check if a comment has already been written for this vulnerability
-			if validCommentWritten[misconfiguration.ID] {
-				fmt.Printf("Skipping comment for vulnerability %s, as it has already been commented on.\n", misconfiguration.ID)
-				continue
-			}
-
-			// write a comment for the vulnerability
 			err := c.WriteMultiLineComment(filename, comment, misconfiguration.CauseMetadata.StartLine, misconfiguration.CauseMetadata.EndLine)
 			if err != nil {
 				fmt.Println("  Ran into some kind of error")
 				fmt.Println("    " + err.Error())
-				switch err.(type) {
-				case commenter.CommentAlreadyWrittenError:
-					fmt.Println("  Ignoring - comment already written")
-					validCommentWritten[misconfiguration.ID] = true
-				case commenter.CommentNotValidError:
-					fmt.Println("  Ignoring - change not part of the current PR")
-					continue
-				default:
-					errMessages = append(errMessages, err.Error())
-				}
+				errMessages = append(errMessages, err.Error())
 			} else {
-				validCommentWritten[misconfiguration.ID] = true
 				fmt.Printf("  Comment written for violation of rule %v in %v\n", misconfiguration.ID, filename)
 			}
 		}
@@ -124,11 +94,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	if len(errMessages) == 0 {
-		if softFail, ok := os.LookupEnv("INPUT_SOFT_FAIL_COMMENTER"); ok && strings.ToLower(softFail) == "true" {
-			return
-		}
-		os.Exit(1)
+	if softFail, ok := os.LookupEnv("INPUT_SOFT_FAIL_COMMENTER"); ok && strings.ToLower(softFail) == "true" {
+		return
 	}
 }
 
@@ -174,7 +141,6 @@ func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter,
 func generateErrorMessage(misconf trivyTypes.DetectedMisconfiguration) string {
 	return fmt.Sprintf(`:warning: trivy found a **%s** severity issue from rule `+"`%s`"+`:
 > %s
-
 More information available %s`,
 		misconf.Severity, misconf.ID, misconf.Message, formatUrls(misconf.References))
 }
