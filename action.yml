@@ -1,5 +1,5 @@
-# action.yml
-name: 'trivy-pr-commenter'
+---
+name: 'trivy-terraform-pr-commenter'
 description: 'add PR comments for trivy terraform scan results'
 inputs:
   github_token:
