@@ -69,18 +69,10 @@ func main() {
 	}
 
 	var errMessages []string
-	var validCommentWritten bool
+	var validCommentWritten map[string]bool
+	validCommentWritten = make(map[string]bool)
+
 	for _, result := range trivyReport.Results {
-		// skip non config/terraform results
-		if result.Class != "config" && result.Type != "terraform" {
-			fmt.Printf("%s / %s / %s - not a config/terraform result; skipping", result.Target, result.Type, result.Class)
-			continue
-		}
-		// skip if no misconfigurations
-		if len(result.Misconfigurations) == 0 {
-			fmt.Printf("%s / %s / %s - no misconfigurations; skipping\n", result.Target, result.Type, result.Class)
-			continue
-		}
 
 		for _, misconfiguration := range result.Misconfigurations {
 			filename := workingDir + strings.ReplaceAll(result.Target, workspacePath, "")
@@ -94,7 +86,7 @@ func main() {
 				switch err.(type) {
 				case commenter.CommentAlreadyWrittenError:
 					fmt.Println("  Ignoring - comment already written")
-					validCommentWritten = true
+					validCommentWritten[misconfiguration.ID] = true
 				case commenter.CommentNotValidError:
 					fmt.Println("  Ignoring - change not part of the current PR")
 					continue
@@ -102,8 +94,16 @@ func main() {
 					errMessages = append(errMessages, err.Error())
 				}
 			} else {
-				validCommentWritten = true
 				fmt.Printf("  Comment written for violation of rule %v in %v\n", misconfiguration.ID, filename)
+				validCommentWritten[misconfiguration.ID] = true
+			}
+		}
+	}
+
+	for _, result := range trivyReport.Results {
+		for _, misconfiguration := range result.Misconfigurations {
+			if !validCommentWritten[misconfiguration.ID] {
+				fmt.Printf("Commenting on new vulnerability found: %v\n", misconfiguration.ID)
 			}
 		}
 	}
@@ -116,13 +116,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if validCommentWritten || len(errMessages) == 0 {
+	if len(errMessages) == 0 {
 		if softFail, ok := os.LookupEnv("INPUT_SOFT_FAIL_COMMENTER"); ok && strings.ToLower(softFail) == "true" {
 			return
 		}
 		os.Exit(1)
 	}
-
 }
 
 func loadTrivyReport(reportPath string) (trivyTypes.Report, error) {
@@ -164,27 +163,6 @@ func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter,
 	return c, err
 }
 
-func printTrivyReport(report trivyTypes.Report) {
-	fmt.Println("Printing trivy report")
-	for _, result := range report.Results {
-		// skip non config/terraform results
-		if result.Class != "config" && result.Type != "terraform" {
-			fmt.Printf("%s / %s / %s - not a config/terraform result; skipping", result.Target, result.Type, result.Class)
-			continue
-		}
-		// skip if no misconfigurations
-		if len(result.Misconfigurations) == 0 {
-			fmt.Printf("%s / %s / %s - no misconfigurations; skipping", result.Target, result.Type, result.Class)
-			continue
-		}
-
-		for _, misconfiguration := range result.Misconfigurations {
-			comment := generateErrorMessage(misconfiguration)
-			writeMultiLineComment(result.Target, comment, misconfiguration.CauseMetadata.StartLine, misconfiguration.CauseMetadata.EndLine)
-		}
-	}
-}
-
 func generateErrorMessage(misconf trivyTypes.DetectedMisconfiguration) string {
 	return fmt.Sprintf(`:warning: trivy found a **%s** severity issue from rule `+"`%s`"+`:
 > %s
@@ -202,14 +180,6 @@ func formatUrls(urls []string) string {
 		urlList += fmt.Sprintf("[here](%s)", url)
 	}
 	return urlList
-}
-
-func writeMultiLineComment(filename string, comment string, startline int, endline int) {
-	println("--- COMMENT ---")
-	println("Filename: " + filename)
-	println("Comment: " + comment)
-	println("Startline: " + strconv.Itoa(startline) + " Endline: " + strconv.Itoa(endline))
-	println("--- END COMMENT ---")
 }
 
 func extractPullRequestNumber() (int, error) {
