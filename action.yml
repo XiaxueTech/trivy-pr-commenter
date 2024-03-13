@@ -1,24 +1,32 @@
----
-name: 'trivy-terraform-pr-commenter'
-description: 'add PR comments for trivy terraform scan results'
+name: "Trivy PR Commenter"
+description: "Runs Trivy and adds comments to the PR where checks have failed"
+
 inputs:
   github_token:
-    description: 'GITHUB_TOKEN'
+    description: "GitHub token"
     required: true
-  report_file:
-    description: 'Trivy Report file'
-    required: true
-    default: 'trivy.json'
   working_directory:
     required: false
     description: |
       Directory to run the action on, from the repo root.
       Default is . (root of the repository)
     default: "."
+  trivy_version:
+    required: false
+    description: "The version of Trivy to use, defaults to latest"
+    default: latest
+  trivy_report_path:
+    required: true
+    description: "Path to the Trivy scan report JSON file"
   soft_fail_commenter:
     required: false
-    description: If set to `true` will silently comment without breaking the build
-
+    description: "If set to `true`, will silently comment without breaking the build"
+outputs:
+  trivy_return_code:
+    description: "Trivy command return code"
 runs:
-  using: 'docker'
-  image: 'Dockerfile'
+  using: "docker"
+  image: "Dockerfile"
+branding:
+  icon: "git-pull-request"
+  color: "purple"
