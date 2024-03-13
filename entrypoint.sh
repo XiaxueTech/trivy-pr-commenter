@@ -2,11 +2,10 @@
 
 set -xe
 
-if [ -z "${INPUT_GITHUB_TOKEN}" ] ; then
-  echo "Consider setting a GITHUB_TOKEN to prevent GitHub api rate limits." >&2
+if [ -z "${INPUT_GITHUB_TOKEN}" ]; then
+  echo "Consider setting a GITHUB_TOKEN to prevent GitHub API rate limits." >&2
+  exit 1
 fi
-
-ls -la
 
 function get_release_assets {
   repo="$1"
@@ -27,14 +26,25 @@ function install_release {
   checksum="$4"
   release_assets="$(get_release_assets "${repo}" "${version}")"
 
-  curl -sLo "${binary}" "$(echo "${release_assets}" | jq -r ". | select(.name == \"${binary}\") | .download_url")"
+  binary_url=$(echo "${release_assets}" | jq -r ". | select(.name == \"${binary}\") | .download_url")
+  if [ -z "$binary_url" ]; then
+    echo "Error: Failed to retrieve download URL for ${binary}."
+    exit 1
+  fi
+
+  curl -sLo "${binary}" "$binary_url"
   curl -sLo "$3-checksums.txt" "$(echo "${release_assets}" | jq -r ". | select(.name | contains(\"$checksum\")) | .download_url")"
 
   grep "${binary}" "$3-checksums.txt" | sha256sum -c -
   install "${binary}" "/usr/local/bin/${3}"
+  rm "${binary}" "$3-checksums.txt"
 }
 
 install_release XiaxueTech/trivy-terraform-pr-commenter "/latest" trivy-terraform-pr-commenter checksums.txt
 
 ls -l /usr/local/bin/
-trivy-terraform-pr-commenter ${INPUT_REPORT_FILE}
+
+if ! trivy-terraform-pr-commenter "${INPUT_REPORT_FILE}"; then
+  echo "Error: Failed to execute Trivy PR commenter."
+  exit 1
+fi
