@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/owenrumney/go-github-pr-commenter/commenter"
@@ -13,14 +12,14 @@ import (
 
 // TrivyVulnerability represents a vulnerability found by Trivy
 type TrivyVulnerability struct {
-	VulnerabilityID string `json:"VulnerabilityID"`
-	PkgName         string `json:"PkgName"`
-	InstalledVersion string `json:"InstalledVersion"`
-	FixedVersion    string `json:"FixedVersion"`
-	Title           string `json:"Title"`
-	Description     string `json:"Description"`
-	Severity        string `json:"Severity"`
-	References      []string `json:"References"`
+	VulnerabilityID  string   `json:"VulnerabilityID"`
+	PkgName          string   `json:"PkgName"`
+	InstalledVersion string   `json:"InstalledVersion"`
+	FixedVersion     string   `json:"FixedVersion"`
+	Title            string   `json:"Title"`
+	Description      string   `json:"Description"`
+	Severity         string   `json:"Severity"`
+	References       []string `json:"References"`
 }
 
 // TrivyScanResult represents the result of a Trivy scan
@@ -69,21 +68,12 @@ func main() {
 		fail(fmt.Sprintf("could not create commenter: %s", err.Error()))
 	}
 
-	workspacePath := fmt.Sprintf("%s/", os.Getenv("GITHUB_WORKSPACE"))
-	fmt.Printf("Working in GITHUB_WORKSPACE %s\n", workspacePath)
-
-	workingDir := os.Getenv("INPUT_WORKING_DIRECTORY")
-	if workingDir != "" {
-		workingDir = strings.TrimPrefix(workingDir, "./")
-		workingDir = strings.TrimSuffix(workingDir, "/") + "/"
-	}
-
 	var errMessages []string
 	var validCommentWritten bool
 	for _, vulnerability := range results.Vulnerabilities {
 		comment := generateTrivyErrorMessage(vulnerability)
 		fmt.Printf("Preparing comment for vulnerability %s\n", vulnerability.VulnerabilityID)
-		err := c.WriteComment(comment)
+		err := c.WriteMultiLineComment(comment)
 		if err != nil {
 			// comment errors
 			errMessages = append(errMessages, err.Error())
