@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -73,7 +74,7 @@ func main() {
 	for _, result := range trivyReport.Results {
 		// skip non config/terraform results
 		if result.Class != "config" && result.Type != "terraform" {
-			fmt.Printf("%s / %s / %s - not a config/terraform result; skipping", result.Target, result.Type, result.Class)
+			fmt.Printf("%s / %s / %s - not a config/terraform result; skipping\n", result.Target, result.Type, result.Class)
 			continue
 		}
 		// skip if no misconfigurations
@@ -85,8 +86,12 @@ func main() {
 		for _, misconfiguration := range result.Misconfigurations {
 			filename := workingDir + strings.ReplaceAll(result.Target, workspacePath, "")
 			filename = strings.TrimPrefix(filename, "./")
-			comment := generateErrorMessage(misconfiguration)
 			fmt.Printf("Preparing comment for violation of rule %v in %v (lines %v to %v)\n", misconfiguration.ID, filename, misconfiguration.CauseMetadata.StartLine, misconfiguration.CauseMetadata.EndLine)
+
+			// Debugging: Print the content of the lines to verify if they correspond to the expected lines in the Terraform file
+			printLines(filename, misconfiguration.CauseMetadata.StartLine, misconfiguration.CauseMetadata.EndLine)
+
+			comment := generateErrorMessage(misconfiguration)
 			err := c.WriteMultiLineComment(filename, comment, misconfiguration.CauseMetadata.StartLine, misconfiguration.CauseMetadata.EndLine)
 			if err != nil {
 				fmt.Println("  Ran into some kind of error")
@@ -164,27 +169,6 @@ func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter,
 	return c, err
 }
 
-func printTrivyReport(report trivyTypes.Report) {
-	fmt.Println("Printing trivy report")
-	for _, result := range report.Results {
-		// skip non config/terraform results
-		if result.Class != "config" && result.Type != "terraform" {
-			fmt.Printf("%s / %s / %s - not a config/terraform result; skipping", result.Target, result.Type, result.Class)
-			continue
-		}
-		// skip if no misconfigurations
-		if len(result.Misconfigurations) == 0 {
-			fmt.Printf("%s / %s / %s - no misconfigurations; skipping", result.Target, result.Type, result.Class)
-			continue
-		}
-
-		for _, misconfiguration := range result.Misconfigurations {
-			comment := generateErrorMessage(misconfiguration)
-			writeMultiLineComment(result.Target, comment, misconfiguration.CauseMetadata.StartLine, misconfiguration.CauseMetadata.EndLine)
-		}
-	}
-}
-
 func generateErrorMessage(misconf trivyTypes.DetectedMisconfiguration) string {
 	return fmt.Sprintf(`:warning: trivy found a **%s** severity issue from rule `+"`%s`"+`:
 > %s
@@ -204,37 +188,44 @@ func formatUrls(urls []string) string {
 	return urlList
 }
 
-func writeMultiLineComment(filename string, comment string, startline int, endline int) {
-	println("--- COMMENT ---")
-	println("Filename: " + filename)
-	println("Comment: " + comment)
-	println("Startline: " + strconv.Itoa(startline) + " Endline: " + strconv.Itoa(endline))
-	println("--- END COMMENT ---")
+func printLines(filename string, startLine, endLine int) {
+	file, err := os.Open(filename)
+	if err != nil {
+		fmt.Printf("Error opening file: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	lineNo := 1
+	for scanner.Scan() {
+		if lineNo >= startLine && lineNo <= endLine {
+			fmt.Printf("Line %d: %s\n", lineNo, scanner.Text())
+		}
+		if lineNo > endLine {
+			break
+		}
+		lineNo++
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Printf("Error scanning file: %v\n", err)
+	}
 }
 
 func extractPullRequestNumber() (int, error) {
-	github_event_file := "/github/workflow/event.json"
-	file, err := ioutil.ReadFile(github_event_file)
-	if err != nil {
-		fail(fmt.Sprintf("GitHub event payload not found in %s", github_event_file))
-		return -1, err
+	prStr := os.Getenv("PR_NUMBER")
+	if prStr == "" {
+		return 0, fmt.Errorf("environment variable PR_NUMBER not set")
 	}
-
-	var data interface{}
-	err = json.Unmarshal(file, &data)
+	prNo, err := strconv.Atoi(prStr)
 	if err != nil {
-		return -1, err
+		return 0, fmt.Errorf("unable to convert PR_NUMBER to integer: %v", err)
 	}
-	payload := data.(map[string]interface{})
-
-	prNumber, err := strconv.Atoi(fmt.Sprintf("%v", payload["number"]))
-	if err != nil {
-		return 0, fmt.Errorf("not a valid PR")
-	}
-	return prNumber, nil
+	return prNo, nil
 }
 
-func fail(err string) {
-	fmt.Printf("Error: %s\n", err)
-	os.Exit(-1)
+func fail(message string) {
+	fmt.Println("::error::" + message)
+	os.Exit(1)
 }
