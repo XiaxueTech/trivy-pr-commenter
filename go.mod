@@ -1,6 +1,6 @@
-module main
+module github.com/XiaxueTech/trivy-terraform-pr-commenter
 
-go 1.15
+go 1.22
 
 require (
 	github.com/anchore/go-struct-converter v0.0.0-20221118182256-c68fdcfa2092 // indirect
