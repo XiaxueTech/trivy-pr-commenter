@@ -195,8 +195,7 @@ func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter,
 	return c, err
 }
 
-func generateErrorMessage(misconf struct {
-	Type        string `json:"Type"`
+func generateErrorMessage(vuln struct {
 	ID          string `json:"ID"`
 	Description string `json:"Description"`
 	Severity    string `json:"Severity"`
@@ -206,7 +205,7 @@ func generateErrorMessage(misconf struct {
 > %s
 
 More information available at %s`,
-		misconf.Severity, misconf.ID, misconf.Description, misconf.PrimaryURL)
+		vuln.Severity, vuln.ID, vuln.Description, vuln.PrimaryURL)
 }
 
 func extractPullRequestNumber() (int, error) {
