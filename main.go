@@ -1,21 +1,41 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 
-	trivyTypes "github.com/aquasecurity/trivy/pkg/types"
 	"github.com/owenrumney/go-github-pr-commenter/commenter"
 )
 
+type TrivyVulnerability struct {
+	Target       string   `json:"Target"`
+	Type         string   `json:"Type"`
+	ID           string   `json:"ID"`
+	Title        string   `json:"Title"`
+	Description  string   `json:"Description"`
+	Severity     string   `json:"Severity"`
+	PrimaryURL   string   `json:"PrimaryURL"`
+	References   []string `json:"References"`
+	Status       string   `json:"Status"`
+	Layer        struct{} `json:"Layer"`
+	CauseMetadata struct{} `json:"CauseMetadata"`
+	Occurrences  []struct {
+		Resource string `json:"Resource"`
+		Filename string `json:"Filename"`
+		Location struct {
+			StartLine int `json:"StartLine"`
+			EndLine   int `json:"EndLine"`
+		} `json:"Location"`
+	} `json:"Occurrences"`
+}
+
 func main() {
-	fmt.Println("Starting the github commenter")
-	// whatever
+	fmt.Println("Starting the Trivy PR commenter")
 
 	token := os.Getenv("INPUT_GITHUB_TOKEN")
 	if len(token) == 0 {
@@ -44,15 +64,15 @@ func main() {
 	if len(args) > 0 {
 		reportPath = args[0]
 	}
-	trivyReport, err := loadTrivyReport(reportPath)
+	vulnerabilities, err := loadTrivyReport(reportPath)
 	if err != nil {
-		fail(fmt.Sprintf("failed to load trivy report: %s", err.Error()))
+		fail(fmt.Sprintf("failed to load Trivy report: %s", err.Error()))
 	}
-	if len(trivyReport.Results) == 0 {
-		fmt.Println("No results found in trivy report, exiting")
+	if len(vulnerabilities) == 0 {
+		fmt.Println("No vulnerabilities found in Trivy report, exiting")
 		os.Exit(0)
 	}
-	fmt.Printf("Trivy found %v issues\n", len(trivyReport.Results))
+	fmt.Printf("Trivy found %v vulnerabilities\n", len(vulnerabilities))
 
 	c, err := createCommenter(token, owner, repo, prNo)
 	if err != nil {
@@ -70,44 +90,19 @@ func main() {
 
 	var errMessages []string
 	var validCommentWritten bool
-	for _, result := range trivyReport.Results {
-		// skip non config/terraform results
-		if result.Class != "config" && result.Type != "terraform" {
-			fmt.Printf("%s / %s / %s - not a config/terraform result; skipping\n", result.Target, result.Type, result.Class)
-			continue
-		}
-		// skip if no misconfigurations
-		if len(result.Misconfigurations) == 0 {
-			fmt.Printf("%s / %s / %s - no misconfigurations; skipping\n", result.Target, result.Type, result.Class)
-			continue
-		}
-
-		for _, misconfiguration := range result.Misconfigurations {
-			filename := workingDir + strings.ReplaceAll(result.Target, workspacePath, "")
+	for _, vuln := range vulnerabilities {
+		for _, occurrence := range vuln.Occurrences {
+			filename := workingDir + strings.ReplaceAll(occurrence.Filename, workspacePath, "")
 			filename = strings.TrimPrefix(filename, "./")
-			fmt.Printf("Preparing comment for violation of rule %v in %v (lines %v to %v)\n", misconfiguration.ID, filename, misconfiguration.CauseMetadata.StartLine, misconfiguration.CauseMetadata.EndLine)
-
-			// Debugging: Print the content of the lines to verify if they correspond to the expected lines in the Terraform file
-			printLines(filename, misconfiguration.CauseMetadata.StartLine, misconfiguration.CauseMetadata.EndLine)
-
-			comment := generateErrorMessage(misconfiguration)
-			err := c.WriteMultiLineComment(filename, comment, misconfiguration.CauseMetadata.StartLine, misconfiguration.CauseMetadata.EndLine)
+			comment := generateErrorMessage(vuln)
+			fmt.Printf("Preparing comment for vulnerability ID %s in %s (lines %d to %d)\n", vuln.ID, filename, occurrence.Location.StartLine, occurrence.Location.EndLine)
+			err := c.WriteMultiLineComment(filename, comment, occurrence.Location.StartLine, occurrence.Location.EndLine)
 			if err != nil {
-				fmt.Println("  Ran into some kind of error")
-				fmt.Println("    " + err.Error())
-				switch err.(type) {
-				case commenter.CommentAlreadyWrittenError:
-					fmt.Println("  Ignoring - comment already written")
-					validCommentWritten = true
-				case commenter.CommentNotValidError:
-					fmt.Println("  Ignoring - change not part of the current PR")
-					continue
-				default:
-					errMessages = append(errMessages, err.Error())
-				}
+				fmt.Printf("Error while writing comment: %s\n", err.Error())
+				errMessages = append(errMessages, err.Error())
 			} else {
 				validCommentWritten = true
-				fmt.Printf("  Comment written for violation of rule %v in %v\n", misconfiguration.ID, filename)
+				fmt.Printf("Comment written for vulnerability ID %s in %s\n", vuln.ID, filename)
 			}
 		}
 	}
@@ -126,28 +121,27 @@ func main() {
 		}
 		os.Exit(1)
 	}
-
 }
 
-func loadTrivyReport(reportPath string) (trivyTypes.Report, error) {
-	fmt.Println("Loading trivy report from " + reportPath)
+func loadTrivyReport(reportPath string) ([]TrivyVulnerability, error) {
+	fmt.Println("Loading Trivy report from " + reportPath)
 
 	file, err := os.Open(reportPath)
 	if err != nil {
-		return trivyTypes.Report{}, err
+		return nil, err
 	}
 	defer file.Close()
 
-	var report trivyTypes.Report
+	var vulnerabilities []TrivyVulnerability
 	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&report)
+	err = decoder.Decode(&vulnerabilities)
 	if err != nil {
-		return trivyTypes.Report{}, err
+		return nil, err
 	}
 
 	fmt.Println("Trivy report loaded successfully")
 
-	return report, nil
+	return vulnerabilities, nil
 }
 
 func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter, error) {
@@ -168,63 +162,37 @@ func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter,
 	return c, err
 }
 
-func generateErrorMessage(misconf trivyTypes.DetectedMisconfiguration) string {
-	return fmt.Sprintf(`:warning: trivy found a **%s** severity issue from rule `+"`%s`"+`:
+func generateErrorMessage(vuln TrivyVulnerability) string {
+	return fmt.Sprintf(`:warning: Trivy found a **%s** severity vulnerability (ID: %s) in %s:
 > %s
 
-More information available %s`,
-		misconf.Severity, misconf.ID, misconf.Message, formatUrls(misconf.References))
-}
-
-func formatUrls(urls []string) string {
-	urlList := ""
-	for _, url := range urls {
-		if urlList != "" {
-			urlList += fmt.Sprintf(" and ")
-		}
-		urlList += fmt.Sprintf("[here](%s)", url)
-	}
-	return urlList
-}
-
-func printLines(filename string, startLine, endLine int) {
-	file, err := os.Open(filename)
-	if err != nil {
-		fmt.Printf("Error opening file: %v\n", err)
-		return
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	lineNo := 1
-	for scanner.Scan() {
-		if lineNo >= startLine && lineNo <= endLine {
-			fmt.Printf("Line %d: %s\n", lineNo, scanner.Text())
-		}
-		if lineNo > endLine {
-			break
-		}
-		lineNo++
-	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Printf("Error scanning file: %v\n", err)
-	}
+More information available at %s`,
+		vuln.Severity, vuln.ID, vuln.Target, vuln.Description, vuln.PrimaryURL)
 }
 
 func extractPullRequestNumber() (int, error) {
-	prStr := os.Getenv("PR_NUMBER")
-	if prStr == "" {
-		return 0, fmt.Errorf("environment variable PR_NUMBER not set")
-	}
-	prNo, err := strconv.Atoi(prStr)
+	githubEventFile := "/github/workflow/event.json"
+	file, err := ioutil.ReadFile(githubEventFile)
 	if err != nil {
-		return 0, fmt.Errorf("unable to convert PR_NUMBER to integer: %v", err)
+		fail(fmt.Sprintf("GitHub event payload not found in %s", githubEventFile))
+		return -1, err
 	}
-	return prNo, nil
+
+	var data interface{}
+	err = json.Unmarshal(file, &data)
+	if err != nil {
+		return -1, err
+	}
+	payload := data.(map[string]interface{})
+
+	prNumber, err := strconv.Atoi(fmt.Sprintf("%v", payload["number"]))
+	if err != nil {
+		return 0, fmt.Errorf("not a valid PR")
+	}
+	return prNumber, nil
 }
 
-func fail(message string) {
-	fmt.Println("::error::" + message)
-	os.Exit(1)
+func fail(err string) {
+	fmt.Printf("Error: %s\n", err)
+	os.Exit(-1)
 }
