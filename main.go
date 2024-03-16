@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/owenrumney/go-github-pr-commenter/commenter"
+	"github.com/aquasecurity/trivy/pkg/types"
 )
 
 type TrivyResult struct {
@@ -189,12 +190,7 @@ func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter,
 	return c, err
 }
 
-func generateErrorMessage(misconf struct {
-	ID          string `json:"ID"`
-	Description string `json:"Description"`
-	Severity    string `json:"Severity"`
-	PrimaryURL  string `json:"PrimaryURL"`
-}) string {
+func generateErrorMessage(misconf TrivyResult) string {
 	return fmt.Sprintf(`:warning: Trivy found a **%s** severity vulnerability (ID: %s):
 > %s
 
