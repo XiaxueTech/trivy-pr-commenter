@@ -10,26 +10,29 @@ import (
 	"strings"
 
 	"github.com/owenrumney/go-github-pr-commenter/commenter"
-	"github.com/aquasecurity/trivy/pkg/types"
 )
 
 type TrivyResult struct {
-	Target            string `json:"Target"`
-	Class             string `json:"Class"`
-	Type              string `json:"Type"`
-	MisconfSummary    struct {
-		Successes  int `json:"Successes"`
-		Failures   int `json:"Failures"`
-		Exceptions int `json:"Exceptions"`
-	} `json:"MisconfSummary,omitempty"`
-	Misconfigurations []struct {
-		Type           string `json:"Type"`
-		ID             string `json:"ID"`
-		Description    string `json:"Description"`
-		Severity       string `json:"Severity"`
-		PrimaryURL     string `json:"PrimaryURL"`
-		CauseMetadata  CauseMetadata `json:"CauseMetadata"`
-	} `json:"Misconfigurations,omitempty"`
+	Target            string          `json:"Target"`
+	Class             string          `json:"Class"`
+	Type              string          `json:"Type"`
+	MisconfSummary    MisconfSummary  `json:"MisconfSummary,omitempty"`
+	Misconfigurations []Misconfiguration `json:"Misconfigurations,omitempty"`
+}
+
+type MisconfSummary struct {
+	Successes  int `json:"Successes"`
+	Failures   int `json:"Failures"`
+	Exceptions int `json:"Exceptions"`
+}
+
+type Misconfiguration struct {
+	Type           string         `json:"Type"`
+	ID             string         `json:"ID"`
+	Description    string         `json:"Description"`
+	Severity       string         `json:"Severity"`
+	PrimaryURL     string         `json:"PrimaryURL"`
+	CauseMetadata  CauseMetadata `json:"CauseMetadata"`
 }
 
 type CauseMetadata struct {
@@ -152,7 +155,7 @@ func main() {
 }
 
 func loadTrivyReport(reportPath string) ([]TrivyResult, error) {
-	fmt.Println("Loading Trivy report from " + reportPath)
+	fmt.Println("Loading trivy report from " + reportPath)
 
 	file, err := os.Open(reportPath)
 	if err != nil {
@@ -160,16 +163,16 @@ func loadTrivyReport(reportPath string) ([]TrivyResult, error) {
 	}
 	defer file.Close()
 
-	var results []TrivyResult
+	var report []TrivyResult
 	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&results)
+	err = decoder.Decode(&report)
 	if err != nil {
 		return nil, err
 	}
 
 	fmt.Println("Trivy report loaded successfully")
 
-	return results, nil
+	return report, nil
 }
 
 func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter, error) {
@@ -190,7 +193,7 @@ func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter,
 	return c, err
 }
 
-func generateErrorMessage(misconf TrivyResult) string {
+func generateErrorMessage(misconf Misconfiguration) string {
 	return fmt.Sprintf(`:warning: Trivy found a **%s** severity vulnerability (ID: %s):
 > %s
 
