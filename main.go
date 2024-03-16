@@ -196,6 +196,7 @@ func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter,
 }
 
 func generateErrorMessage(misconf struct {
+	Type        string `json:"Type"`
 	ID          string `json:"ID"`
 	Description string `json:"Description"`
 	Severity    string `json:"Severity"`
