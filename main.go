@@ -12,26 +12,57 @@ import (
 	"github.com/owenrumney/go-github-pr-commenter/commenter"
 )
 
-type TrivyVulnerability struct {
-	Target       string   `json:"Target"`
-	Type         string   `json:"Type"`
-	ID           string   `json:"ID"`
-	Title        string   `json:"Title"`
-	Description  string   `json:"Description"`
-	Severity     string   `json:"Severity"`
-	PrimaryURL   string   `json:"PrimaryURL"`
-	References   []string `json:"References"`
-	Status       string   `json:"Status"`
-	Layer        struct{} `json:"Layer"`
-	CauseMetadata struct{} `json:"CauseMetadata"`
-	Occurrences  []struct {
-		Resource string `json:"Resource"`
-		Filename string `json:"Filename"`
-		Location struct {
+type TrivyResult struct {
+	Target            string `json:"Target"`
+	Class             string `json:"Class"`
+	Type              string `json:"Type"`
+	MisconfSummary    struct {
+		Successes   int `json:"Successes"`
+		Failures    int `json:"Failures"`
+		Exceptions  int `json:"Exceptions"`
+	} `json:"MisconfSummary,omitempty"`
+	Misconfigurations []struct {
+		Type        string `json:"Type"`
+		ID          string `json:"ID"`
+		AVDID       string `json:"AVDID"`
+		Title       string `json:"Title"`
+		Description string `json:"Description"`
+		Message     string `json:"Message"`
+		Query       string `json:"Query"`
+		Resolution  string `json:"Resolution"`
+		Severity    string `json:"Severity"`
+		PrimaryURL  string `json:"PrimaryURL"`
+		References  []string `json:"References"`
+		Status      string `json:"Status"`
+		Layer       struct{} `json:"Layer"`
+		CauseMetadata struct {
+			Resource  string `json:"Resource"`
+			Provider  string `json:"Provider"`
+			Service   string `json:"Service"`
 			StartLine int `json:"StartLine"`
 			EndLine   int `json:"EndLine"`
-		} `json:"Location"`
-	} `json:"Occurrences"`
+			Code      struct {
+				Lines []struct {
+					Number      int `json:"Number"`
+					Content     string `json:"Content"`
+					IsCause     bool `json:"IsCause"`
+					Annotation  string `json:"Annotation,omitempty"`
+					Truncated   bool `json:"Truncated"`
+					Highlighted string `json:"Highlighted,omitempty"`
+					FirstCause  bool `json:"FirstCause"`
+					LastCause   bool `json:"LastCause"`
+				} `json:"Lines"`
+			} `json:"Code"`
+			Occurrences []struct {
+				Resource string `json:"Resource"`
+				Filename string `json:"Filename"`
+				Location struct {
+					StartLine int `json:"StartLine"`
+					EndLine   int `json:"EndLine"`
+				} `json:"Location"`
+			} `json:"Occurrences"`
+		} `json:"CauseMetadata"`
+	} `json:"Misconfigurations,omitempty"`
 }
 
 func main() {
@@ -90,19 +121,21 @@ func main() {
 
 	var errMessages []string
 	var validCommentWritten bool
-	for _, vuln := range vulnerabilities {
-		for _, occurrence := range vuln.Occurrences {
-			filename := workingDir + strings.ReplaceAll(occurrence.Filename, workspacePath, "")
-			filename = strings.TrimPrefix(filename, "./")
-			comment := generateErrorMessage(vuln)
-			fmt.Printf("Preparing comment for vulnerability ID %s in %s (lines %d to %d)\n", vuln.ID, filename, occurrence.Location.StartLine, occurrence.Location.EndLine)
-			err := c.WriteMultiLineComment(filename, comment, occurrence.Location.StartLine, occurrence.Location.EndLine)
-			if err != nil {
-				fmt.Printf("Error while writing comment: %s\n", err.Error())
-				errMessages = append(errMessages, err.Error())
-			} else {
-				validCommentWritten = true
-				fmt.Printf("Comment written for vulnerability ID %s in %s\n", vuln.ID, filename)
+	for _, result := range vulnerabilities {
+		for _, misconf := range result.Misconfigurations {
+			for _, occurrence := range misconf.CauseMetadata.Occurrences {
+				filename := workingDir + strings.ReplaceAll(occurrence.Filename, workspacePath, "")
+				filename = strings.TrimPrefix(filename, "./")
+				comment := generateErrorMessage(misconf)
+				fmt.Printf("Preparing comment for vulnerability ID %s in %s (lines %d to %d)\n", misconf.ID, filename, occurrence.Location.StartLine, occurrence.Location.EndLine)
+				err := c.WriteMultiLineComment(filename, comment, occurrence.Location.StartLine, occurrence.Location.EndLine)
+				if err != nil {
+					fmt.Printf("Error while writing comment: %s\n", err.Error())
+					errMessages = append(errMessages, err.Error())
+				} else {
+					validCommentWritten = true
+					fmt.Printf("Comment written for vulnerability ID %s in %s\n", misconf.ID, filename)
+				}
 			}
 		}
 	}
@@ -123,7 +156,7 @@ func main() {
 	}
 }
 
-func loadTrivyReport(reportPath string) ([]TrivyVulnerability, error) {
+func loadTrivyReport(reportPath string) ([]TrivyResult, error) {
 	fmt.Println("Loading Trivy report from " + reportPath)
 
 	file, err := os.Open(reportPath)
@@ -132,16 +165,16 @@ func loadTrivyReport(reportPath string) ([]TrivyVulnerability, error) {
 	}
 	defer file.Close()
 
-	var vulnerabilities []TrivyVulnerability
+	var results []TrivyResult
 	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&vulnerabilities)
+	err = decoder.Decode(&results)
 	if err != nil {
 		return nil, err
 	}
 
 	fmt.Println("Trivy report loaded successfully")
 
-	return vulnerabilities, nil
+	return results, nil
 }
 
 func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter, error) {
@@ -162,12 +195,17 @@ func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter,
 	return c, err
 }
 
-func generateErrorMessage(vuln TrivyVulnerability) string {
-	return fmt.Sprintf(`:warning: Trivy found a **%s** severity vulnerability (ID: %s) in %s:
+func generateErrorMessage(misconf struct {
+	ID          string `json:"ID"`
+	Description string `json:"Description"`
+	Severity    string `json:"Severity"`
+	PrimaryURL  string `json:"PrimaryURL"`
+}) string {
+	return fmt.Sprintf(`:warning: Trivy found a **%s** severity vulnerability (ID: %s):
 > %s
 
 More information available at %s`,
-		vuln.Severity, vuln.ID, vuln.Target, vuln.Description, vuln.PrimaryURL)
+		misconf.Severity, misconf.ID, misconf.Description, misconf.PrimaryURL)
 }
 
 func extractPullRequestNumber() (int, error) {
