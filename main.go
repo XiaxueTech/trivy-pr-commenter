@@ -17,52 +17,46 @@ type TrivyResult struct {
 	Class             string `json:"Class"`
 	Type              string `json:"Type"`
 	MisconfSummary    struct {
-		Successes   int `json:"Successes"`
-		Failures    int `json:"Failures"`
-		Exceptions  int `json:"Exceptions"`
+		Successes  int `json:"Successes"`
+		Failures   int `json:"Failures"`
+		Exceptions int `json:"Exceptions"`
 	} `json:"MisconfSummary,omitempty"`
 	Misconfigurations []struct {
-		Type        string `json:"Type"`
-		ID          string `json:"ID"`
-		AVDID       string `json:"AVDID"`
-		Title       string `json:"Title"`
-		Description string `json:"Description"`
-		Message     string `json:"Message"`
-		Query       string `json:"Query"`
-		Resolution  string `json:"Resolution"`
-		Severity    string `json:"Severity"`
-		PrimaryURL  string `json:"PrimaryURL"`
-		References  []string `json:"References"`
-		Status      string `json:"Status"`
-		Layer       struct{} `json:"Layer"`
-		CauseMetadata struct {
-			Resource  string `json:"Resource"`
-			Provider  string `json:"Provider"`
-			Service   string `json:"Service"`
+		Type           string `json:"Type"`
+		ID             string `json:"ID"`
+		Description    string `json:"Description"`
+		Severity       string `json:"Severity"`
+		PrimaryURL     string `json:"PrimaryURL"`
+		CauseMetadata  CauseMetadata `json:"CauseMetadata"`
+	} `json:"Misconfigurations,omitempty"`
+}
+
+type CauseMetadata struct {
+	Resource  string `json:"Resource"`
+	Provider  string `json:"Provider"`
+	Service   string `json:"Service"`
+	StartLine int    `json:"StartLine"`
+	EndLine   int    `json:"EndLine"`
+	Code      struct {
+		Lines []struct {
+			Number      int    `json:"Number"`
+			Content     string `json:"Content"`
+			IsCause     bool   `json:"IsCause"`
+			Annotation  string `json:"Annotation,omitempty"`
+			Truncated   bool   `json:"Truncated"`
+			Highlighted string `json:"Highlighted,omitempty"`
+			FirstCause  bool   `json:"FirstCause"`
+			LastCause   bool   `json:"LastCause"`
+		} `json:"Lines"`
+	} `json:"Code"`
+	Occurrences []struct {
+		Resource string `json:"Resource"`
+		Filename string `json:"Filename"`
+		Location struct {
 			StartLine int `json:"StartLine"`
 			EndLine   int `json:"EndLine"`
-			Code      struct {
-				Lines []struct {
-					Number      int `json:"Number"`
-					Content     string `json:"Content"`
-					IsCause     bool `json:"IsCause"`
-					Annotation  string `json:"Annotation,omitempty"`
-					Truncated   bool `json:"Truncated"`
-					Highlighted string `json:"Highlighted,omitempty"`
-					FirstCause  bool `json:"FirstCause"`
-					LastCause   bool `json:"LastCause"`
-				} `json:"Lines"`
-			} `json:"Code"`
-			Occurrences []struct {
-				Resource string `json:"Resource"`
-				Filename string `json:"Filename"`
-				Location struct {
-					StartLine int `json:"StartLine"`
-					EndLine   int `json:"EndLine"`
-				} `json:"Location"`
-			} `json:"Occurrences"`
-		} `json:"CauseMetadata"`
-	} `json:"Misconfigurations,omitempty"`
+		} `json:"Location"`
+	} `json:"Occurrences"`
 }
 
 func main() {
@@ -195,7 +189,7 @@ func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter,
 	return c, err
 }
 
-func generateErrorMessage(vuln struct {
+func generateErrorMessage(misconf struct {
 	ID          string `json:"ID"`
 	Description string `json:"Description"`
 	Severity    string `json:"Severity"`
@@ -205,7 +199,7 @@ func generateErrorMessage(vuln struct {
 > %s
 
 More information available at %s`,
-		vuln.Severity, vuln.ID, vuln.Description, vuln.PrimaryURL)
+		misconf.Severity, misconf.ID, misconf.Description, misconf.PrimaryURL)
 }
 
 func extractPullRequestNumber() (int, error) {
