@@ -1,4 +1,4 @@
-module github.com/XiaxueTech/trivy-terraform-pr-commenter/cmd
+module github.com/XiaxueTech/trivy-terraform-pr-commenter
 
 go 1.15
 
