@@ -4,16 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
-	"net/url"
 
 	"github.com/owenrumney/go-github-pr-commenter/commenter"
 )
 
 func main() {
-	fmt.Println("Starting the github commenter")
+	fmt.Println("Starting the GitHub commenter")
 
 	token := os.Getenv("INPUT_GITHUB_TOKEN")
 	if len(token) == 0 {
@@ -23,7 +23,7 @@ func main() {
 	githubRepository := os.Getenv("GITHUB_REPOSITORY")
 	split := strings.Split(githubRepository, "/")
 	if len(split) != 2 {
-		fail(fmt.Sprintf("unexpected value for GITHUB_REPOSITORY. Expected <organisation/name>, found %v", split))
+		fail(fmt.Sprintf("unexpected value for GITHUB_REPOSITORY. Expected <organization/name>, found %v", split))
 	}
 	owner := split[0]
 	repo := split[1]
@@ -66,11 +66,11 @@ func main() {
 	var validCommentWritten bool
 	for _, result := range results {
 		result.Range.Filename = workingDir + strings.ReplaceAll(result.Range.Filename, workspacePath, "")
-		comment := generateErrorMessage(result)
-		fmt.Printf("Preparing comment for violation of rule %v in %v\n", result.RuleID, result.Range.Filename)
-		err := c.WriteMultiLineComment(result.Range.Filename, comment, result.Range.StartLine, result.Range.EndLine)
+		comment := generateErrorMessage(result.Misconfigurations[0]) // Pass the first misconfiguration
+		fmt.Printf("Preparing comment for violation of rule %v in %v\n", result.Misconfigurations[0].ID, result.Range.Filename)
+		err := c.WriteMultiLineComment(result.Range.Filename, comment, result.Misconfigurations[0].CauseMetadata.StartLine, result.Misconfigurations[0].CauseMetadata.EndLine)
 		if err != nil {
-			// don't error if its simply that the comments aren't valid for the PR
+			// don't error if it's simply that the comments aren't valid for the PR
 			switch err.(type) {
 			case commenter.CommentAlreadyWrittenError:
 				fmt.Println("Ignoring - comment already written")
@@ -83,7 +83,7 @@ func main() {
 			}
 		} else {
 			validCommentWritten = true
-			fmt.Printf("Commenting for %s to %s:%d:%d\n", result.Description, result.Range.Filename, result.Range.StartLine, result.Range.EndLine)
+			fmt.Printf("Commenting for %s to %s:%d:%d\n", result.Misconfigurations[0].Description, result.Range.Filename, result.Misconfigurations[0].CauseMetadata.StartLine, result.Misconfigurations[0].CauseMetadata.EndLine)
 		}
 	}
 
@@ -106,44 +106,57 @@ func createCommenter(token, owner, repo string, prNo int) (*commenter.Commenter,
 	var err error
 	var c *commenter.Commenter
 
-	githubApiUrl := os.Getenv("GITHUB_API_URL")
-	if githubApiUrl == "" || githubApiUrl == "https://api.github.com" {
+	githubAPIURL := os.Getenv("GITHUB_API_URL")
+	if githubAPIURL == "" || githubAPIURL == "https://api.github.com" {
 		c, err = commenter.NewCommenter(token, owner, repo, prNo)
 	} else {
-		url, err := url.Parse(githubApiUrl)
+		u, err := url.Parse(githubAPIURL)
 		if err == nil {
-			enterpriseUrl := fmt.Sprintf("%s://%s", url.Scheme, url.Hostname())
-			c, err = commenter.NewEnterpriseCommenter(token, enterpriseUrl, enterpriseUrl, owner, repo, prNo)	
+			enterpriseURL := fmt.Sprintf("%s://%s", u.Scheme, u.Hostname())
+			c, err = commenter.NewEnterpriseCommenter(token, enterpriseURL, enterpriseURL, owner, repo, prNo)
 		}
 	}
 
 	return c, err
 }
 
-func generateErrorMessage(result result) string {
+func generateErrorMessage(misconf misconfiguration) string {
 	return fmt.Sprintf(`:warning: trivy found a **%s** severity issue from rule `+"`%s`"+`:
 > %s
 
 More information available %s`,
-		result.Severity, result.RuleID, result.Description, formatUrls(result.Links))
+		misconf.Severity, misconf.ID, misconf.Description, formatUrls(misconf.References))
+}
+
+func loadResultsFile() ([]result, error) {
+	results := struct{ Results []result }{}
+
+	file, err := ioutil.ReadFile(resultsFile)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(file, &results)
+	if err != nil {
+		return nil, err
+	}
+	return results.Results, nil
 }
 
 func extractPullRequestNumber() (int, error) {
-	github_event_file := "/github/workflow/event.json"
-	file, err := ioutil.ReadFile(github_event_file)
+	githubEventFile := "/github/workflow/event.json"
+	file, err := ioutil.ReadFile(githubEventFile)
 	if err != nil {
-		fail(fmt.Sprintf("GitHub event payload not found in %s", github_event_file))
+		fail(fmt.Sprintf("GitHub event payload not found in %s", githubEventFile))
 		return -1, err
 	}
 
-	var data interface{}
+	var data map[string]interface{}
 	err = json.Unmarshal(file, &data)
 	if err != nil {
 		return -1, err
 	}
-	payload := data.(map[string]interface{})
 
-	prNumber, err := strconv.Atoi(fmt.Sprintf("%v", payload["number"]))
+	prNumber, err := strconv.Atoi(fmt.Sprintf("%v", data["number"]))
 	if err != nil {
 		return 0, fmt.Errorf("not a valid PR")
 	}
