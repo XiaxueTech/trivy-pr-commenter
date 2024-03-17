@@ -128,20 +128,6 @@ More information available %s`,
 		misconf.Severity, misconf.ID, misconf.Description, formatUrls(misconf.References))
 }
 
-func loadResultsFile() ([]result, error) {
-	results := struct{ Results []result }{}
-
-	file, err := ioutil.ReadFile(resultsFile)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(file, &results)
-	if err != nil {
-		return nil, err
-	}
-	return results.Results, nil
-}
-
 func extractPullRequestNumber() (int, error) {
 	githubEventFile := "/github/workflow/event.json"
 	file, err := ioutil.ReadFile(githubEventFile)
