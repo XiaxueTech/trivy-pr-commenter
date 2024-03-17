@@ -5,7 +5,11 @@ before:
     - go mod tidy
 
 builds:
-  - env:
+  - 
+    id: commenter
+    main: ./cmd/commenter
+    binary: commenter
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
